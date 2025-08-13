@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Free Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }
+    #chat-container { display:none; max-width:600px; margin:auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.1); }
+    #messages { border:1px solid #ccc; padding:10px; height:300px; overflow-y: scroll; margin-bottom:10px; background:#f9f9f9; border-radius:5px; }
+    .message { padding:5px 10px; margin:5px 0; border-radius:10px; max-width:80%; }
+    .message.self { background:#a0e7a0; margin-left:auto; }
+    .message.other { background:#e0e0e0; margin-right:auto; }
+    #online-users { border:1px solid #ccc; padding:5px; margin-bottom:10px; border-radius:5px; background:#fff; }
+    input { padding:5px; margin:3px; }
+    button { padding:5px 10px; margin:3px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h2>Sign Up</h2>
+  <input type="text" id="signup-username" placeholder="Choose a username">
+  <input type="color" id="signup-color" value="#a0e7a0">
+  <input type="email" id="signup-email" placeholder="Email">
+  <input type="password" id="signup-password" placeholder="Password">
+  <button onclick="signUp()">Sign Up</button>
+
+  <h2>Login</h2>
+  <input type="email" id="login-email" placeholder="Email">
+  <input type="password" id="login-password" placeholder="Password">
+  <button onclick="login()">Login</button>
+
+  <div id="chat-container">
+    <h1>Chat</h1>
+    <div id="online-users"></div>
+    <div id="messages"></div>
+    <input type="text" id="msg" placeholder="Message">
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-analytics.js";
+    import { getDatabase, ref, push, onChildAdded, set, get, onValue, remove } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAtAKKNKA8GDw14b-6TmQjfvlmzsqbbOZg",
+      authDomain: "chat-c352e.firebaseapp.com",
+      databaseURL: "https://chat-c352e-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "chat-c352e",
+      storageBucket: "chat-c352e.firebasestorage.app",
+      messagingSenderId: "771842810944",
+      appId: "1:771842810944:web:7f2f9a10f0ba9f41086ba5",
+      measurementId: "G-0HR0F9GL2E"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+
+    let currentUsername = '';
+    let currentUID = '';
+    let currentColor = '#a0e7a0';
+
+    // Sign up
+    window.signUp = () => {
+      const email = document.getElementById('signup-email').value;
+      const password = document.getElementById('signup-password').value;
+      const username = document.getElementById('signup-username').value;
+      const color = document.getElementById('signup-color').value;
+
+      createUserWithEmailAndPassword(auth, email, password)
+        .then(userCredential => {
+          currentUID = userCredential.user.uid;
+          currentUsername = username;
+          currentColor = color;
+          set(ref(db, 'users/' + currentUID), { username: username, color: color });
+          alert('Account created! You are logged in.');
+          showChat(currentUID);
+        })
+        .catch(error => alert(error.message));
+    };
+
+    // Login
+    window.login = () => {
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+
+      signInWithEmailAndPassword(auth, email, password)
+        .then(userCredential => {
+          currentUID = userCredential.user.uid;
+          showChat(currentUID);
+        })
+        .catch(error => alert(error.message));
+    };
+
+    // Logout
+    window.logout = () => {
+      remove(ref(db, 'online/' + currentUID));
+      signOut(auth).then(() => {
+        document.getElementById('chat-container').style.display = 'none';
+        currentUsername = '';
+        currentUID = '';
+      });
+    };
+
+    // Show chat
+    function showChat(uid){
+      document.getElementById('chat-container').style.display = 'block';
+      document.getElementById('messages').innerHTML = '';
+      document.getElementById('online-users').innerHTML = '';
+
+      get(ref(db, 'users/' + uid)).then(snapshot => {
+        const userData = snapshot.val();
+        currentUsername = userData.username;
+        currentColor = userData.color || '#a0e7a0';
+        set(ref(db, 'online/' + uid), currentUsername);
+      });
+
+      // Listen for messages
+      onChildAdded(ref(db, 'messages'), snapshot => {
+        const msg = snapshot.val();
+        const div = document.createElement('div');
+        div.classList.add('message');
+        div.textContent = msg.user + ": " + msg.text;
+        div.style.background = (msg.userUID === currentUID) ? currentColor : '#e0e0e0';
+        div.classList.add((msg.userUID === currentUID) ? 'self' : 'other');
+        document.getElementById('messages').appendChild(div);
+        div.scrollIntoView(); // auto-scroll
+      });
+
+      // Listen for online users
+      onValue(ref(db, 'online'), snapshot => {
+        const users = snapshot.val() || {};
+        const list = Object.values(users).join(', ');
+        document.getElementById('online-users').textContent = "Online: " + list;
+      });
+    }
+
+    // Send message
+    window.sendMessage = () => {
+      const text = document.getElementById('msg').value;
+      if(text && currentUsername){
+        push(ref(db, 'messages'), { user: currentUsername, text: text, userUID: currentUID });
+        document.getElementById('msg').value = '';
+      }
+    };
+
+    // Auto-login after reload
+    onAuthStateChanged(auth, user => {
+      if(user){
+        currentUID = user.uid;
+        showChat(currentUID);
+      }
+    });
+  </script>
+</body>
+</html>
